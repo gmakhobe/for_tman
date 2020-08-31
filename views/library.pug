@@ -1,0 +1,226 @@
+extends layout
+
+block style
+    link(rel='stylesheet', href='https://cdnjs.cloudflare.com/ajax/libs/bootstrap-slider/10.0.0/css/bootstrap-slider.min.css')
+    style.
+        .tooltip.tooltip-main {
+            opacity: 1;
+        }
+
+        .slider-selection {
+            background: #007bff;
+        }
+
+        .slider {
+            margin-top: 30px;
+            display: block;
+        }
+
+        .slider.slider-horizontal {
+            width: 100%;
+        }
+    style.
+        .movie span.badge {
+            width: 45%
+            font-size: 20px
+        }
+        .movie span.badge.right {
+            float: right
+        }
+
+block content
+    .container.mt-4
+        .row
+            .col-md-12
+                .card
+                    .card-body
+                        h2 #{__('Search a movie or tv show')}
+                        hr
+
+                        form(method='post', action='/search', data-ajax, data-ajax-callback='afterSearch')
+                            .form-group
+                                input.form-control(type='text', name='query')
+                            button.btn.btn-primary(type='submit') #{__('Find')}
+                .row.results
+        hr
+        h2 #{__('Library')}
+        hr
+        button.btn.btn-info.ml-3.order(data-order-type='DESC', data-order-key='date')
+            | #{__('Production year')}&nbsp;&nbsp;
+            i.fa.fa-sort
+        button.btn.btn-info.ml-3.order(data-order-type='DESC', data-order-key='vote_average')
+            | #{__('Note')}&nbsp;&nbsp;
+            i.fa.fa-sort
+        hr
+        .row.text-center
+            .col-md-3
+                .form-group
+                    label #{__('Production year')}
+                    input(type='text', name='filter-date', data-slider-min=oldest_date, data-slider-max=(new Date()).getFullYear(), data-slider-step='1', data-slider-value='[' + oldest_date + ', ' + (new Date()).getFullYear() + ']')
+            .col-md-3
+                .form-group
+                    label #{__('Note')}
+                    input(type='text', name='filter-note', data-slider-min='0', data-slider-max='10', data-slider-step='0.5', data-slider-value='[0, 10]')
+            .col-md-3
+                button.btn.btn-info.mt-4.filter-movies.active(data-display='1')
+                    i.fa.fa-check
+                    | &nbsp;&nbsp;#{__('Display movies')}
+            .col-md-3
+                button.btn.btn-info.mt-4.filter-tv.active(data-display='1')
+                    i.fa.fa-check
+                    | &nbsp;&nbsp;#{__('Display tv shows')}
+
+        hr
+        .row.mt-2#content
+
+
+block scripts
+    script#template(type='text/html').
+        <div class="col-md-4 mt-3 hidden">
+            <div class="card movie" {STYLE}>
+                {IMG}
+                <div class="card-body">
+                    <h5 class="card-title">{NAME}</h5>
+                    <hr>
+                    <span class="badge badge-info">{VOTE_AVERAGE} / 10</span>
+                    <span class="badge badge-info right">{DATE}</span>
+                    <hr>
+                    <a class="btn btn-primary btn-block" href="/{LINK}">{VIEW_BTN}</a>
+                </div>
+            </div>
+        </div>
+    script(src='https://cdnjs.cloudflare.com/ajax/libs/bootstrap-slider/10.0.0/bootstrap-slider.min.js')
+    script(type='text/javascript').
+        var filterDate = $('input[name="filter-date"]').bootstrapSlider({
+            formatter: function (numbers) {
+                if (typeof numbers === 'object')
+                    return '#{__('Between {0} and {1}')}'.replace('{0}', numbers[0]).replace('{1}', numbers[1])
+                return numbers
+            }
+        })
+        var filterNote = $('input[name="filter-note"]').bootstrapSlider({
+            formatter: function (numbers) {
+                if (typeof numbers === 'object')
+                  return '#{__('Between {0} / 10 and {1} / 10')}'.replace('{0}', numbers[0]).replace('{1}', numbers[1])
+            return numbers
+            }
+        })
+
+        var views = #{JSON.stringify(viewedMovies)}
+        function generateMovieHTML(movie) {
+          if (!movie.date || movie.date.length === 0)
+            return ''
+          var html = $('#template').html()
+          html = html.replace(/{NAME}/g, movie.title)
+          html = html.replace(/{LINK}/g, movie.original)
+          html = html.replace('{IMG}', movie.poster_path ? '<img class="card-img-top" src="http://image.tmdb.org/t/p/w780' + movie.poster_path + '">' : '')
+          html = html.replace('{VIEW_BTN}', movie.media_type === 'movie' ? '#{__('View the movie')}' : '#{__('View the tv show')}')
+          if (movie.date && new Date(movie.date).getFullYear())
+            html = html.replace('{DATE}', new Date(movie.date).getFullYear())
+          else
+            html = html.replace('{DATE}', '#{__('Date not found')}')
+          html = html.replace('{VOTE_AVERAGE}', movie.vote_average)
+          html = html.replace('{STYLE}', views.indexOf(movie.media_id) !== -1 ? 'style="opacity:0.6"' : '')
+          return html
+        }
+
+        var afterSearch = function (req, res) {
+          var content = ''
+          var results = res.results;
+
+          for (var i = 0; i < results.length; i++) {
+            if (!results[i])
+              continue
+            content += generateMovieHTML(results[i])
+          }
+          $('.results').html(content)
+        }
+
+        var page = 1
+        var content = $('#content')
+        var deviceAgent = navigator.userAgent.toLowerCase()
+        var agentID = deviceAgent.match(/(iphone|ipod|ipad)/)
+        var isEnd = false
+        var movies = []
+        var displayMovie = true
+        var displayTv = true
+        var noteRange = [0, 10]
+        var dateRange = [parseInt('#{oldest_date}'), (new Date).getFullYear()]
+        var orderBy = {
+          'date': 'DESC'
+        }
+
+        var refreshFilters = function () {
+          displayMovie = $('.filter-movies').attr('data-display') === '1'
+          displayTv = $('.filter-tv').attr('data-display') === '1'
+          noteRange = $('input[name="filter-note"]').val().split(',')
+          dateRange = $('input[name="filter-date"]').val().split(',')
+        }
+        var refreshContent = function () {
+          refreshFilters()
+          page = 1
+          content.html('')
+          movies = []
+          loadContent()
+        }
+        var loadContent = function () {
+          $.post('/library/' + page, {
+            order: orderBy,
+            releaseDate: {min: dateRange[0], max: dateRange[1]},
+            noMovie: !displayMovie,
+            noTv: !displayTv,
+            note: {min: noteRange[0], max: noteRange[1]}
+          }, function (res) {
+            var data = ''
+
+            if (res.movies.length === 0) {
+              isEnd = true
+              return
+            }
+            refreshFilters()
+            for (var i = 0; i < res.movies.length; i++) {
+              data += generateMovieHTML(res.movies[i])
+              movies.push(res.movies[i])
+            }
+            content.append(data)
+            content.find('.hidden').fadeIn(400)
+            page++
+          })
+        }
+        loadContent()
+        $(window).scroll(function () {
+          if (isEnd)
+            return
+          if (($(window).scrollTop() + $(window).height()) === $(document).height() || agentID && ($(window).scrollTop() + $(window).height()) + 350 > $(document).height()) {
+            loadContent()
+          }
+        })
+        $('.filter-movies, .filter-tv').on('click', function (e) {
+          e.preventDefault()
+          var isActive = $(this).attr('data-display') === '1'
+          $(this).attr('data-display', isActive ? '0' : '1')
+          if (isActive)
+            $(this).removeClass('active')
+          else
+            $(this).addClass('active')
+          refreshContent()
+        })
+        filterNote.on('slideStop', function () {
+            console.log('Update filter note')
+            refreshContent()
+        })
+        filterDate.on('slideStop', function () {
+          console.log('Update filter data')
+          refreshContent()
+        })
+        $('.order').on('click', function (e) {
+          e.preventDefault()
+          var btn = $(this)
+          var key = btn.attr('data-order-key')
+          var type = btn.attr('data-order-type')
+
+          orderBy = {}
+          orderBy[key] = type
+          btn.attr('data-order-type', (type === 'DESC') ? 'ASC' : 'DESC')
+          refreshContent()
+        })
